@@ -11,7 +11,7 @@ use analysis::recommender::BanRecommender;
 use api::client::RiotApiClient;
 use clap::Parser;
 use config::Config;
-use display::output::{display_ban_recommendations, display_error, display_info, display_success, display_match_history};
+use display::output::{display_ban_recommendations, display_error, display_info, display_success, display_match_history, display_ally_analysis};
 use error::AppError;
 use indicatif::ProgressBar;
 
@@ -253,15 +253,23 @@ fn run(args: Args) -> Result<(), AppError> {
             .map(|p| p.champion_name.clone())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // Collect enemy champions
+        // Collect enemy champions and track allies
         let mut enemy_champions = Vec::new();
+        let recency_weight = 1.0 - (idx as f64 / match_ids.len() as f64);
 
-        // Track enemy champions
+        // Track enemy champions and allies
         for participant in &match_data.info.participants {
             if participant.team_id != our_team_id {
+                // Enemy champion
                 enemy_champions.push(participant.champion_name.clone());
-                let recency_weight = 1.0 - (idx as f64 / match_ids.len() as f64);
                 tracker.add_champion_encounter(
+                    participant.champion_name.clone(),
+                    won,
+                    recency_weight,
+                );
+            } else if participant.puuid != account.puuid {
+                // Ally champion (same team but not us)
+                tracker.add_ally_encounter(
                     participant.champion_name.clone(),
                     won,
                     recency_weight,
@@ -322,6 +330,11 @@ fn run(args: Args) -> Result<(), AppError> {
 
     display_match_history(history_data);
     display_ban_recommendations(recommendations, &summoner.name);
+
+    // Analyze and display ally performance
+    let ally_stats = tracker.get_ally_stats();
+    let ally_analysis = BanRecommender::analyze_allies(ally_stats, 1); // Show allies with 1+ games
+    display_ally_analysis(ally_analysis);
 
     // Display API usage stats
     rate_limiter.display_status();

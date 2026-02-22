@@ -9,6 +9,14 @@ pub struct BanRecommendation {
     pub times_faced: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct AllyAnalysis {
+    pub champion_name: String,
+    pub times_played_together: usize,
+    pub wins_together: usize,
+    pub win_rate: f64,
+}
+
 impl BanRecommendation {
     pub fn new(
         champion_name: String,
@@ -23,6 +31,27 @@ impl BanRecommendation {
             frequency,
             win_rate,
             times_faced,
+        }
+    }
+}
+
+impl AllyAnalysis {
+    pub fn new(
+        champion_name: String,
+        times_played_together: usize,
+        wins_together: usize,
+    ) -> Self {
+        let win_rate = if times_played_together == 0 {
+            0.0
+        } else {
+            wins_together as f64 / times_played_together as f64
+        };
+
+        AllyAnalysis {
+            champion_name,
+            times_played_together,
+            wins_together,
+            win_rate,
         }
     }
 }
@@ -80,5 +109,27 @@ impl BanRecommender {
         recommendations.truncate(top_n);
 
         recommendations
+    }
+
+    pub fn analyze_allies(
+        ally_stats: Vec<ChampionStats>,
+        min_games_together: usize,
+    ) -> Vec<AllyAnalysis> {
+        let mut analyses: Vec<AllyAnalysis> = ally_stats
+            .iter()
+            .filter(|s| s.times_faced >= min_games_together)
+            .map(|s| {
+                AllyAnalysis::new(
+                    s.name.clone(),
+                    s.times_faced,
+                    s.wins_against,
+                )
+            })
+            .collect();
+
+        // Sort by win rate (worst first)
+        analyses.sort_by(|a, b| a.win_rate.partial_cmp(&b.win_rate).unwrap_or(std::cmp::Ordering::Equal));
+
+        analyses
     }
 }

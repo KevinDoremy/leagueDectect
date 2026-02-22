@@ -1,4 +1,4 @@
-use crate::analysis::recommender::BanRecommendation;
+use crate::analysis::recommender::{BanRecommendation, AllyAnalysis};
 use colored::*;
 use tabled::{settings::Style, Table, Tabled};
 
@@ -18,6 +18,14 @@ struct BanRow {
     frequency: String,
     win_rate: String,
     score: String,
+}
+
+#[derive(Tabled)]
+struct AllyRow {
+    rank: String,
+    champion: String,
+    games: String,
+    win_rate: String,
 }
 
 pub fn display_ban_recommendations(
@@ -139,4 +147,57 @@ pub fn display_match_history(matches: Vec<(usize, String, bool, Vec<String>)>) {
     let mut table = Table::new(rows);
     table.with(Style::rounded());
     println!("{}\n", table);
+}
+
+pub fn display_ally_analysis(allies: Vec<AllyAnalysis>) {
+    if allies.is_empty() {
+        return;
+    }
+
+    println!("\n{}", "👥 ALLY PERFORMANCE ANALYSIS".bold().cyan());
+    println!("{}\n", "=".repeat(60).cyan());
+
+    let mut rows = vec![];
+    for (idx, ally) in allies.iter().enumerate() {
+        let rank = format!("#{}", idx + 1);
+        let champion = ally.champion_name.clone();
+        let games = format!("{}", ally.times_played_together);
+        let win_rate = format!("{:.1}%", ally.win_rate * 100.0);
+
+        rows.push(AllyRow {
+            rank,
+            champion,
+            games,
+            win_rate,
+        });
+    }
+
+    let mut table = Table::new(rows);
+    table.with(Style::rounded());
+    println!("{}", table);
+
+    println!("\n{}", "Analysis".bold().yellow());
+    println!("• Lists allies with lowest win rate when playing together");
+    println!("• Consider playing differently with these champions or adjusting team composition\n");
+
+    if let Some(worst_ally) = allies.first() {
+        println!("{}", "Worst Ally Match".bold().red());
+        println!(
+            "  {} with {:.1}% win rate ({}/{} games)",
+            worst_ally.champion_name, worst_ally.win_rate * 100.0, worst_ally.wins_together, worst_ally.times_played_together
+        );
+        if worst_ally.win_rate < 0.25 {
+            println!(
+                "  {} Very poor synergy - may need team adjustments",
+                "⚠️".red()
+            );
+        } else if worst_ally.win_rate < 0.4 {
+            println!(
+                "  {} Below average synergy with this ally",
+                "⚠️".yellow()
+            );
+        }
+    }
+
+    println!();
 }

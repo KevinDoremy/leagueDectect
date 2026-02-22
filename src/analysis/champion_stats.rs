@@ -37,12 +37,14 @@ impl ChampionStats {
 
 pub struct ChampionStatsTracker {
     stats: HashMap<String, ChampionStats>,
+    ally_stats: HashMap<String, ChampionStats>,
 }
 
 impl ChampionStatsTracker {
     pub fn new() -> Self {
         ChampionStatsTracker {
             stats: HashMap::new(),
+            ally_stats: HashMap::new(),
         }
     }
 
@@ -63,12 +65,38 @@ impl ChampionStatsTracker {
         entry.recency_score += recency_weight;
     }
 
+    pub fn add_ally_encounter(
+        &mut self,
+        champion_name: String,
+        match_won: bool,
+        recency_weight: f64,
+    ) {
+        let entry = self.ally_stats.entry(champion_name.clone()).or_insert_with(|| {
+            ChampionStats::new(champion_name)
+        });
+
+        entry.times_faced += 1;
+        if match_won {
+            entry.wins_against += 1;
+        }
+        entry.recency_score += recency_weight;
+    }
+
     pub fn get_stats(&self) -> Vec<ChampionStats> {
         self.stats.values().cloned().collect()
+    }
+
+    pub fn get_ally_stats(&self) -> Vec<ChampionStats> {
+        self.ally_stats.values().cloned().collect()
     }
 
     #[allow(dead_code)]
     pub fn get_champion(&self, name: &str) -> Option<ChampionStats> {
         self.stats.get(name).cloned()
+    }
+
+    #[allow(dead_code)]
+    pub fn get_ally(&self, name: &str) -> Option<ChampionStats> {
+        self.ally_stats.get(name).cloned()
     }
 }
