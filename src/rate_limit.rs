@@ -4,17 +4,20 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc, Duration};
 use crate::error::AppError;
 
-const MAX_REQUESTS_PER_DAY: u32 = 50;
-const MAX_REQUESTS_PER_HOUR: u32 = 20;
+// Riot API rate limits for development keys:
+// - 20 requests per second
+// - 100 requests per 2 minutes (120 seconds)
+const MAX_REQUESTS_PER_2MIN: u32 = 100;
+const MAX_REQUESTS_PER_SEC: u32 = 20;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestLog {
     pub player: String,
-    pub requests_today: u32,
-    pub requests_this_hour: u32,
+    pub requests_per_2min: u32,
+    pub requests_per_sec: u32,
     pub last_request: DateTime<Utc>,
-    pub day_reset: DateTime<Utc>,
-    pub hour_reset: DateTime<Utc>,
+    pub window_2min_start: DateTime<Utc>,
+    pub window_1sec_start: DateTime<Utc>,
 }
 
 impl RequestLog {
@@ -22,11 +25,11 @@ impl RequestLog {
         let now = Utc::now();
         RequestLog {
             player: player.to_string(),
-            requests_today: 0,
-            requests_this_hour: 0,
+            requests_per_2min: 0,
+            requests_per_sec: 0,
             last_request: now,
-            day_reset: now + Duration::days(1),
-            hour_reset: now + Duration::hours(1),
+            window_2min_start: now,
+            window_1sec_start: now,
         }
     }
 
@@ -48,17 +51,19 @@ impl RequestLog {
                 let mut log: RequestLog = serde_json::from_str(&content)
                     .map_err(|e| AppError::JsonError(format!("Failed to parse rate limit log: {}", e)))?;
 
-                // Reset if day has passed
+                // Reset windows if time has passed
                 let now = Utc::now();
-                if now > log.day_reset {
-                    log.requests_today = 0;
-                    log.day_reset = now + Duration::days(1);
+
+                // Reset 2-minute window
+                if now.signed_duration_since(log.window_2min_start).num_seconds() > 120 {
+                    log.requests_per_2min = 0;
+                    log.window_2min_start = now;
                 }
 
-                // Reset if hour has passed
-                if now > log.hour_reset {
-                    log.requests_this_hour = 0;
-                    log.hour_reset = now + Duration::hours(1);
+                // Reset 1-second window
+                if now.signed_duration_since(log.window_1sec_start).num_seconds() > 1 {
+                    log.requests_per_sec = 0;
+                    log.window_1sec_start = now;
                 }
 
                 Ok(log)
@@ -79,35 +84,46 @@ impl RequestLog {
     }
 
     pub fn can_make_request(&self) -> bool {
-        self.requests_today < MAX_REQUESTS_PER_DAY && self.requests_this_hour < MAX_REQUESTS_PER_HOUR
+        self.requests_per_2min < MAX_REQUESTS_PER_2MIN && self.requests_per_sec < MAX_REQUESTS_PER_SEC
     }
 
     pub fn record_request(&mut self) {
-        self.requests_today += 1;
-        self.requests_this_hour += 1;
+        self.requests_per_2min += 1;
+        self.requests_per_sec += 1;
         self.last_request = Utc::now();
     }
 
-    pub fn get_remaining(&self) -> u32 {
-        (MAX_REQUESTS_PER_DAY - self.requests_today).min(MAX_REQUESTS_PER_HOUR - self.requests_this_hour)
+    pub fn get_remaining(&self) -> (u32, u32) {
+        (
+            MAX_REQUESTS_PER_2MIN - self.requests_per_2min,
+            MAX_REQUESTS_PER_SEC - self.requests_per_sec,
+        )
     }
 
-    pub fn get_reset_time(&self) -> DateTime<Utc> {
-        self.day_reset.min(self.hour_reset)
+    pub fn get_reset_times(&self) -> (DateTime<Utc>, DateTime<Utc>) {
+        (
+            self.window_2min_start + Duration::seconds(120),
+            self.window_1sec_start + Duration::seconds(1),
+        )
     }
 
     pub fn display_status(&self) {
-        let remaining = self.get_remaining();
-        let reset_time = self.get_reset_time();
-        let time_until_reset = reset_time.signed_duration_since(Utc::now());
+        let (rem_2min, rem_sec) = self.get_remaining();
+        let (reset_2min, reset_sec) = self.get_reset_times();
+        let now = Utc::now();
+
+        let time_2min = reset_2min.signed_duration_since(now);
+        let time_sec = reset_sec.signed_duration_since(now);
 
         println!("\n📊 API Usage (Player: {})", self.player);
-        println!("   Daily:  {}/{} requests", self.requests_today, MAX_REQUESTS_PER_DAY);
-        println!("   Hourly: {}/{} requests", self.requests_this_hour, MAX_REQUESTS_PER_HOUR);
-        println!("   Remaining: {} requests today", remaining);
-        println!("   Reset in: {}h {}m\n",
-            time_until_reset.num_hours(),
-            time_until_reset.num_minutes() % 60
+        println!("   Per 2 min: {}/{} requests (reset in {}s)",
+            self.requests_per_2min, MAX_REQUESTS_PER_2MIN,
+            time_2min.num_seconds().max(0));
+        println!("   Per 1 sec: {}/{} requests (reset in {}ms)",
+            self.requests_per_sec, MAX_REQUESTS_PER_SEC,
+            time_sec.num_milliseconds().max(0));
+        println!("   Status: {} ✅\n",
+            if self.can_make_request() { "Ready" } else { "Rate Limited" }
         );
     }
 }
