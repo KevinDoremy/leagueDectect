@@ -4,6 +4,7 @@ mod cache;
 mod config;
 mod display;
 mod error;
+mod rate_limit;
 
 use analysis::champion_stats::ChampionStatsTracker;
 use analysis::recommender::BanRecommender;
@@ -70,9 +71,24 @@ fn run(args: Args) -> Result<(), AppError> {
         config.region = region;
     }
 
+    let player_key = format!("{}#{}", args.game_name, args.tag_line);
+
+    // Load rate limit tracker
+    let mut rate_limiter = rate_limit::RequestLog::load(&player_key)?;
+
+    // Check if we can make requests
+    if !args.refresh && rate_limiter.can_make_request() {
+        // OK - we have requests remaining
+    } else if args.refresh && !rate_limiter.can_make_request() {
+        rate_limiter.display_status();
+        return Err(AppError::ApiError(
+            format!("⛔ API limit reached (50 req/day, 20 req/hour). Try again in ~1 hour or tomorrow."),
+        ));
+    }
+
     display_info(&format!(
-        "Fetching data for {}#{} in region {}",
-        args.game_name, args.tag_line, config.region
+        "Fetching data for {} in region {}",
+        player_key, config.region
     ));
 
     let client = RiotApiClient::new(config.clone());
@@ -109,6 +125,10 @@ fn run(args: Args) -> Result<(), AppError> {
 
         // Fetch just the match IDs from API (fast - 1 request)
         let api_match_ids = client.get_match_ids(&account.puuid, total_needed)?;
+
+        // Record API request
+        rate_limiter.record_request();
+        rate_limiter.save().ok();
 
         if api_match_ids.is_empty() {
             return Err(AppError::NoRankedGames);
@@ -163,6 +183,10 @@ fn run(args: Args) -> Result<(), AppError> {
 
         let ids = client.get_match_ids(&account.puuid, total_needed)?;
 
+        // Record API request
+        rate_limiter.record_request();
+        rate_limiter.save().ok();
+
         if ids.is_empty() {
             return Err(AppError::NoRankedGames);
         }
@@ -175,6 +199,10 @@ fn run(args: Args) -> Result<(), AppError> {
         let total_needed = std::cmp::min(matches_count + args.offset, 100);
 
         let ids = client.get_match_ids(&account.puuid, total_needed)?;
+
+        // Record API request
+        rate_limiter.record_request();
+        rate_limiter.save().ok();
 
         if ids.is_empty() {
             return Err(AppError::NoRankedGames);
@@ -205,6 +233,11 @@ fn run(args: Args) -> Result<(), AppError> {
 
     for (idx, match_id) in match_ids.iter().enumerate() {
         let match_data = client.get_match(match_id)?;
+
+        // Record API request for match details
+        rate_limiter.record_request();
+        rate_limiter.save().ok();
+
         pb.inc(1);
 
         // Find our player in the match
@@ -289,6 +322,9 @@ fn run(args: Args) -> Result<(), AppError> {
 
     display_match_history(history_data);
     display_ban_recommendations(recommendations, &summoner.name);
+
+    // Display API usage stats
+    rate_limiter.display_status();
 
     Ok(())
 }
