@@ -93,17 +93,60 @@ fn run(args: Args) -> Result<(), AppError> {
 
     let client = RiotApiClient::new(config.clone());
 
-    // Step 1: Get account info (PUUID)
-    display_info("Step 1: Getting account info...");
-    let account = client.get_account(&args.game_name, &args.tag_line)?;
-    display_success(&format!("Found PUUID: {}", &account.puuid[0..8]));
+    let player_key = format!("{}#{}", args.game_name, args.tag_line);
+    let region = config.region.clone();
+    let mut match_cache = cache::MatchCache::load(&player_key).ok();
 
-    // Step 2: Get summoner info
-    display_info("Step 2: Getting summoner info...");
-    let summoner = client.get_summoner(&account.puuid)?;
-    display_success(&format!("Summoner Level: {}", summoner.summoner_level));
+    // Step 1 & 2: Try to get account info from cache first
+    let (account, summoner) = if let Some(ref cache) = match_cache {
+        if let Some(cached_acct) = cache.get_cached_account() {
+            display_info("Step 1: Using cached account info...");
+            display_success(&format!("Found PUUID: {}", &cached_acct.puuid[0..8]));
 
-    // Step 3: Get rank info (optional - for context)
+            display_info("Step 2: Using cached summoner info...");
+            display_success(&format!("Summoner Level: {}", cached_acct.summoner_level));
+
+            // Create API models from cached data
+            let acc = api::models::AccountDto {
+                puuid: cached_acct.puuid.clone(),
+                game_name: args.game_name.clone(),
+                tag_line: args.tag_line.clone(),
+            };
+            let summ = api::models::SummonerDto {
+                id: String::new(),
+                puuid: cached_acct.puuid.clone(),
+                name: cached_acct.summoner_name.clone(),
+                summoner_level: cached_acct.summoner_level,
+                profile_icon_id: 0,
+                revision_date: 0,
+            };
+            (acc, summ)
+        } else {
+            // No cached account, fetch from API
+            display_info("Step 1: Getting account info...");
+            let acct = client.get_account(&args.game_name, &args.tag_line)?;
+            display_success(&format!("Found PUUID: {}", &acct.puuid[0..8]));
+
+            display_info("Step 2: Getting summoner info...");
+            let summ = client.get_summoner(&acct.puuid)?;
+            display_success(&format!("Summoner Level: {}", summ.summoner_level));
+
+            (acct, summ)
+        }
+    } else {
+        // No cache at all, fetch from API
+        display_info("Step 1: Getting account info...");
+        let acct = client.get_account(&args.game_name, &args.tag_line)?;
+        display_success(&format!("Found PUUID: {}", &acct.puuid[0..8]));
+
+        display_info("Step 2: Getting summoner info...");
+        let summ = client.get_summoner(&acct.puuid)?;
+        display_success(&format!("Summoner Level: {}", summ.summoner_level));
+
+        (acct, summ)
+    };
+
+    // Step 3: Display rank info
     display_info("Step 3: Getting rank info...");
     display_success(&format!(
         "Summoner Level: {}",
@@ -111,9 +154,6 @@ fn run(args: Args) -> Result<(), AppError> {
     ));
 
     // Step 4: Get match IDs (with caching)
-    let player_key = format!("{}#{}", args.game_name, args.tag_line);
-    let region = config.region.clone();
-    let mut match_cache = cache::MatchCache::load(&player_key).ok();
 
     let has_cache = match_cache.as_ref().map(|c| !c.matches.is_empty()).unwrap_or(false);
 
@@ -294,6 +334,14 @@ fn run(args: Args) -> Result<(), AppError> {
 
     if let Some(ref mut cache_mut) = match_cache {
         cache_mut.region = region.clone();
+
+        // Save account info to cache
+        cache_mut.set_account(
+            account.puuid.clone(),
+            summoner.name.clone(),
+            summoner.summoner_level,
+        );
+
         let cached_matches: Vec<cache::CachedMatch> = match_history
             .iter()
             .map(|m| cache::CachedMatch {

@@ -14,12 +14,21 @@ pub struct CachedMatch {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CachedAccount {
+    pub puuid: String,
+    pub summoner_name: String,
+    pub summoner_level: i32,
+    pub cached_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MatchCache {
     pub player: String,
     pub region: String,
     pub last_updated: DateTime<Utc>,
     pub matches: Vec<CachedMatch>,
+    pub account: Option<CachedAccount>,
 }
 
 impl MatchCache {
@@ -29,7 +38,21 @@ impl MatchCache {
             region: region.to_string(),
             last_updated: Utc::now(),
             matches: Vec::new(),
+            account: None,
         }
+    }
+
+    pub fn set_account(&mut self, puuid: String, summoner_name: String, summoner_level: i32) {
+        self.account = Some(CachedAccount {
+            puuid,
+            summoner_name,
+            summoner_level,
+            cached_at: Utc::now(),
+        });
+    }
+
+    pub fn get_cached_account(&self) -> Option<CachedAccount> {
+        self.account.clone()
     }
 
     pub fn get_cache_path(player: &str) -> PathBuf {
