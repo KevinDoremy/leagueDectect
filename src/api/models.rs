@@ -77,6 +77,10 @@ pub struct ParticipantDto {
     pub champion_name: String,
     pub team_id: i32,
     pub win: bool,
+    #[serde(default)]
+    pub lane: String,  // TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY
+    #[serde(default)]
+    pub role: String,  // TOP, JUNGLE, MID, ADC, SUPPORT
 }
 
 // Data Dragon Champion response
