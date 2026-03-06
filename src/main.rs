@@ -25,7 +25,7 @@ struct MatchResult {
 
 #[derive(Parser, Debug)]
 #[command(name = "League Detect")]
-#[command(about = "Analyze ranked games and get ban recommendations", long_about = None)]
+#[command(about = "Analyze games and get ban recommendations", long_about = None)]
 struct Args {
     /// Riot Game Name
     game_name: String,
@@ -53,6 +53,10 @@ struct Args {
     /// Force refresh from Riot API (ignore cache)
     #[arg(long)]
     refresh: bool,
+
+    /// Queue type: ranked, normal, all (default: ranked)
+    #[arg(short, long, default_value = "ranked")]
+    queue: String,
 }
 
 fn main() {
@@ -164,7 +168,7 @@ fn run(args: Args) -> Result<(), AppError> {
         let total_needed = std::cmp::min(matches_count + args.offset, 100);
 
         // Fetch just the match IDs from API (fast - 1 request)
-        let api_match_ids = client.get_match_ids(&account.puuid, total_needed)?;
+        let api_match_ids = client.get_match_ids(&account.puuid, total_needed, &args.queue)?;
 
         // Record API request
         rate_limiter.record_request();
@@ -221,7 +225,7 @@ fn run(args: Args) -> Result<(), AppError> {
         let matches_count = std::cmp::min(args.matches, 100);
         let total_needed = std::cmp::min(matches_count + args.offset, 100);
 
-        let ids = client.get_match_ids(&account.puuid, total_needed)?;
+        let ids = client.get_match_ids(&account.puuid, total_needed, &args.queue)?;
 
         // Record API request
         rate_limiter.record_request();
@@ -238,7 +242,7 @@ fn run(args: Args) -> Result<(), AppError> {
         let matches_count = std::cmp::min(args.matches, 100);
         let total_needed = std::cmp::min(matches_count + args.offset, 100);
 
-        let ids = client.get_match_ids(&account.puuid, total_needed)?;
+        let ids = client.get_match_ids(&account.puuid, total_needed, &args.queue)?;
 
         // Record API request
         rate_limiter.record_request();

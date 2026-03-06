@@ -104,12 +104,19 @@ impl RiotApiClient {
         })
     }
 
-    pub fn get_match_ids(&self, puuid: &str, count: usize) -> Result<Vec<String>, AppError> {
+    pub fn get_match_ids(&self, puuid: &str, count: usize, queue: &str) -> Result<Vec<String>, AppError> {
         let regional_routing = self.get_regional_routing();
-        let url = format!(
-            "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?type=ranked&count={}&api_key={}",
-            regional_routing, puuid, count, self.config.api_key
-        );
+        let url = if queue == "all" {
+            format!(
+                "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?count={}&api_key={}",
+                regional_routing, puuid, count, self.config.api_key
+            )
+        } else {
+            format!(
+                "https://{}.api.riotgames.com/lol/match/v5/matches/by-puuid/{}/ids?type={}&count={}&api_key={}",
+                regional_routing, puuid, queue, count, self.config.api_key
+            )
+        };
 
         let body = self.execute_request(&url)?;
         serde_json::from_str(&body).map_err(|e| {
